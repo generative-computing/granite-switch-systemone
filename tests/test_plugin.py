@@ -1,8 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0 AND MIT
-"""No-GPU checks for plugin.py's validation helpers, renderer resolution, and adapter-name
-resolution. Does NOT touch vLLM or a model -- the actual engine call
-(`_answer_question`/`_fetch_label_logprobs`) needs a running vLLM server and is covered by
-integration testing against a real container instead.
+"""No-GPU checks for plugin.py's validation helpers, renderer resolution and adapter-name
+resolution. They do not touch vLLM or a model; the engine call (`_answer_question`,
+`_fetch_label_logprobs`) is covered by the live scripts in scripts/.
 
   python3 -m pytest tests/test_plugin.py -v -s --tb=short
 """
@@ -55,7 +54,7 @@ def test_question_score_bounds():
 
 def test_question_instructions_optional():
     """jev's real OpenAPI spec: `instructions` is NOT in any question type's
-    `required` list -- a question can rely on well-named criteria alone."""
+    `required` list, so a question can rely on well-named criteria alone."""
     q = sp.Question(type="choice", criteria={"a": "A", "b": "B"})
     assert q.instructions is None
 
@@ -107,7 +106,7 @@ def test_question_score_criteria_entry_cannot_be_null():
 
 def test_validation_error_response_matches_jev_shape():
     """jev's real OpenAPI spec documents the 422 body as
-    `{"detail": [{"loc", "msg", "type", ...}]}` -- pydantic's own
+    `{"detail": [{"loc", "msg", "type", ...}]}`, pydantic's own
     ValidationError.errors() shape already."""
     try:
         sp.SystemOneRequest(state="s", model="m", questions={})
@@ -360,8 +359,8 @@ def test_resolve_adapter_name_env_override_still_validated(monkeypatch):
 
 
 # --------------------------------------------------------------------------------------------
-# _load_renderer: dynamic "module:function" resolution -- this is the actual decoupling
-# mechanism (plugin.py never imports a renderer module directly).
+# _load_renderer: resolves "module:function" by name, so plugin.py never imports a
+# renderer module directly.
 # --------------------------------------------------------------------------------------------
 
 

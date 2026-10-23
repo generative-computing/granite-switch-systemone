@@ -52,15 +52,19 @@ and `ibm-granite/granite-switch-4.1-8b` unless a row names another checkpoint.
   every released Switch checkpoint tops out at 131,072 tokens of context; the header path
   is exercised to 131,072 (see the long-contexts row above).
 
-Decision Index caveats: IBM's exact 1,068 fast-subset rows are unpublished, so the run
-uses the kit's own stratified sample of the same size (the card itself reports ~0.6
-points of serving-path noise on identical rows); the kit's rebuilt release-v1 rows
-differ in bytes from the lab's pinned file (per-benchmark counts match; the added and
-GSM8K rows are byte-identical), a known kit condition also hit by other public runs,
-worked around by running the v2 cut on the rebuilt rows; and 4 sample rows over 64k
-tokens are rejected by the documented default caps (scored as wrong by the kit's rules).
-These runs are validation that the endpoint works end to end on a realistic benchmark.
-They do not show the serving path is identical to the one that produced the card's figures.
+Decision Index caveats:
+
+- IBM's exact 1,068-row fast subset is unpublished, so the run uses the kit's own stratified
+  sample of the same size. The model card reports about 0.6 points of serving-path noise on
+  identical rows.
+- The kit's rebuilt release-v1 rows differ in bytes from the lab's pinned file. Per-benchmark
+  counts match, and the added and GSM8K rows are byte-identical. Other public runs hit the
+  same condition. We worked around it by running the v2 cut on the rebuilt rows.
+- Four sample rows are over 64k tokens, so the default caps reject them and the kit scores
+  them as wrong.
+
+These runs show that the endpoint works end to end on a realistic benchmark. They do not
+show that the serving path is identical to the one that produced the card's figures.
 
 ## Known gaps
 

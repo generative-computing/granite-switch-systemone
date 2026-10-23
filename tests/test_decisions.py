@@ -1,11 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """No-GPU checks for the /v1/decisions wire format: schema bounds from OpenAI's published
-spec, input flattening, answer mapping -- and, the load-bearing ones, PARITY with
-/v1/systemone: the translation must converge on exactly the internal (state, Question)
-the systemone route builds for the equivalent request. Identical internals is what makes
-both routes render byte-identical prompts and read the same label logits, so the engine
-behaviour of /v1/decisions is the engine behaviour of /v1/systemone by construction. The
-engine call itself needs a running server (tests/test_decisions_e2e.py, env-gated).
+spec, input flattening and answer mapping. The most important ones check parity with
+/v1/systemone: for an equivalent request, both routes must build the same internal
+(state, Question). Both then render the same prompt and read the same label logits, so
+the engine behaviour is the same. The engine call itself needs a running server
+(tests/test_decisions_e2e.py, enabled by an environment variable).
 
   python3 -m pytest tests/test_decisions.py -v -s --tb=short
 """
@@ -181,11 +180,10 @@ def test_input_non_user_role_rejected():
     ],
 )
 def test_translation_matches_systemone_internals(decisions_question, systemone_question):
-    """The load-bearing parity check: for the equivalent request, the decisions
-    translation and the systemone route's own validation must produce the same state
-    string and the same internal Question. Everything downstream (_answer_question,
-    the renderer, the engine call) is shared code, so identical internals means
-    byte-identical prompts and identical answers."""
+    """The key parity check: for an equivalent request, the decisions translation and the
+    systemone route's validation must produce the same state string and internal
+    Question. Everything after that (_answer_question, the renderer, the engine call) is
+    shared, so the prompts and answers are identical."""
     decisions_req = sp.DecisionRequest.model_validate(_request([decisions_question], input="the same state"))
     systemone_req = sp.SystemOneRequest.model_validate(
         {"model": "m", "state": "the same state", "questions": {"0": systemone_question}}
