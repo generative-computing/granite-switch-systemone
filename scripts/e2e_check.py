@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """End-to-end check for a live granite-switch-systemone server.
 
-Runs the full wire-format battery against any deployment of this plugin --
-local, container, or remote -- using only the Python standard library, so it
+Runs the full wire-format battery against any deployment of this plugin
+(local, container or remote), using only the Python standard library, so it
 runs anywhere Python 3 runs. Deployment is out of scope by design: whatever
 brings the server up (a local container, a cluster job, anything else) only
 needs to hand this script the server's base URL.

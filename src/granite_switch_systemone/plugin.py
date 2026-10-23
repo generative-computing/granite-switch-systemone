@@ -124,7 +124,7 @@ class Question(BaseModel):
             if not isinstance(self.criteria, list) or not (1 <= len(self.criteria) <= 10):
                 raise ValueError("a `score` question needs `criteria` as an array of 1..10 level descriptions")
             # jev: a score level description is string | object | array (unlike choice,
-            # not documented as nullable -- every level needs an actual description).
+            # not documented as nullable, so every level needs an actual description).
             if not all(isinstance(v, (str, dict, list)) for v in self.criteria):
                 raise ValueError("a `score` question's `criteria` entries must each be a string, object, or array")
         elif self.criteria is not None and not isinstance(self.criteria, dict):
@@ -172,7 +172,7 @@ class DecisionLevel(BaseModel):
 class DecisionQuestion(BaseModel):
     """One OpenAI Decisions question (`predicate`/`choice`/`score`), with the field
     constraints of OpenAI's published spec: `instructions` required, 2-255 unique
-    choices, at most 10 score levels. `name` is optional -- answers are positional, so
+    choices, at most 10 score levels. `name` is optional, since answers are positional, so
     duplicate or missing names cannot collide (the response echoes the name or null)."""
 
     model_config = ConfigDict(extra="forbid")
@@ -352,7 +352,7 @@ def _max_bracket_depth(text: str) -> int:
 
 def _parse_strict_json(body: bytes) -> Any:
     """UTF-8 (no BOM) + JSON, rejecting non-finite numbers and excess nesting. Raises
-    ValueError on any violation -- the route maps that to HTTP 400."""
+    ValueError on any violation; the route maps that to HTTP 400."""
     if body[:3] == b"\xef\xbb\xbf":
         raise ValueError("request body must not start with a UTF-8 BOM")
     try:
@@ -386,7 +386,7 @@ def _validation_error_response(e: PydanticValidationError) -> JSONResponse:
 
 def _error(status: int, message: str) -> JSONResponse:
     """For the status codes jev's OpenAPI spec does NOT give a documented body shape
-    for (400/413/415 -- only 422's HTTPValidationError is in the spec); see
+    for 400/413/415 (only 422's HTTPValidationError is in the spec); see
     `_validation_error_response` for 422 itself."""
     return JSONResponse(
         content={"error": {"message": message, "code": int(status)}},
@@ -484,10 +484,9 @@ def _normalize_probs(probs: list[float]) -> list[float]:
 
 
 def _choice_confidence(probs: list[float]) -> float:
-    """jev's actual `confidence` formula for a choice answer -- NOT our own
-    invention, and NOT top-1 probability: the top probability rescaled so a uniform
-    distribution gives 0 and all mass on one option gives 1,
-    `(max(p) - 1/n) / (1 - 1/n)`."""
+    """jev's `confidence` formula for a choice answer. It is not the top-1 probability: it
+    rescales the top probability so a uniform distribution gives 0 and all mass on one
+    option gives 1, `(max(p) - 1/n) / (1 - 1/n)`."""
     if len(probs) == 1:
         return 1.0
     normalized = _normalize_probs(probs)
@@ -514,7 +513,7 @@ def _score_confidence(probs: list[float]) -> float:
 
 
 def _chunk_label_ids(label_ids: list[int]) -> list[list[int]]:
-    """Split label ids into `MAX_LABEL_OPTIONS`-sized groups -- one `logprob_token_ids`
+    """Split label ids into `MAX_LABEL_OPTIONS`-sized groups, one `logprob_token_ids`
     request per group. Pure list math, no engine/vLLM dependency, so it's unit-testable
     without a GPU. The common case (<= MAX_LABEL_OPTIONS labels) returns a single chunk,
     so callers don't need a separate code path for it."""
@@ -1065,7 +1064,7 @@ def _route_exists(app: FastAPI, path: str) -> bool:
 
 class SystemOnePlugin:
     """`vllm.endpoint_plugins` entry point (see module docstring). Loaded only when
-    `granite_switch_systemone` is in `VLLM_PLUGINS` -- see this repo's README/Dockerfile."""
+    `granite_switch_systemone` is in `VLLM_PLUGINS`; see this repo's README and Dockerfile."""
 
     name = "granite_switch_systemone"
     required_tasks: tuple[str, ...] | None = ("generate",)

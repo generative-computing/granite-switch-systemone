@@ -11,7 +11,7 @@ from granite_switch_systemone import renderer
 
 class _FakeTok:
     """Tokenizes single ASCII letters/digits as one token each, two-letter strings as
-    two tokens -- just enough for build_label_pool's single-token-label scan."""
+    two tokens, which is enough for build_label_pool's single-token-label scan."""
 
     _next_id = 0
     _ids: dict[str, int]
