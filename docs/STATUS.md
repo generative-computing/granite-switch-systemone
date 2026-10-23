@@ -2,7 +2,7 @@
 
 How to run each test is in [TESTING.md](TESTING.md).
 
-Last updated 2026-10-20. "Live" means a real server on H100s: granite-switch 0.1.1,
+Last updated 2026-10-23. "Live" means a real server on H100s: granite-switch 0.1.1,
 transformers 5.17, vLLM 0.26.0 / 0.27.1 / 0.28.0 / 0.29.0 / 0.30.0 as noted per row,
 and `ibm-granite/granite-switch-4.1-8b` unless a row names another checkpoint.
 
@@ -31,12 +31,15 @@ and `ibm-granite/granite-switch-4.1-8b` unless a row names another checkpoint.
 | Docker image build | `docker build --platform linux/amd64`, default and `WITH_ASR=1` variants | both build; the stack inside is package-identical to the live-tested one (PyPI vLLM 0.30.0, torch 2.13.0+cu130, transformers 5.17.0, granite-switch 0.1.1); entry points and imports verified in-container; the `WITH_ASR=1` image holds the pinned speech-model revision as its only snapshot, with `refs/main` pointing at it |
 | Serving from the image | the default image (no speech model inside) under enroot (no Docker daemon on the GPU nodes), through `serve.sh`, only the checkpoint mounted, Hub offline: the 8b on one H100 and the 30b on two H100s (`--tensor-parallel-size 2`, set from the GPU count). On each: `e2e_check`, `probe_check`, `accuracy_check` | pass on both: 11/11 and 6/6, accuracy as on the pip path; the log shows `hf_overrides: {'asr_enabled': False}` and never names the speech model |
 | Speech input on (`SYSTEMONE_SPEECH_INPUT=1`) | the 8b on the default image with the speech model supplied from a mounted Hub cache (`HF_HUB_CACHE`); and, as a negative control, the same switch with no speech model anywhere | the 8b starts and passes the same three checks; the control stops in `serve.sh` with the preflight message naming the model and the fixes, before vLLM starts. The `WITH_ASR=1` image (model baked in) was served on the 8b in an earlier run |
+| Container on arm64 | `docker build` of the default image on an aarch64 NVIDIA GB10 host (vLLM 0.30.0, granite-switch 0.1.1 resolved, imports checked in the image); the public `granite-switch-4.1-8b` served from it with `docker run --gpus all`: `e2e_check`, `probe_check`, `accuracy_check` | pass; BoolQ accuracy 0.890 and log-loss 0.283 on arm64, against 0.890 and 0.282 on amd64 with the same checkpoint |
+| Multi-arch image build | `image.yml` run by hand (build only, then with push): each of the default and `-asr` images builds natively for amd64 and arm64, and a second job joins them into one tag | both tags are manifest lists holding a `linux/amd64` and a `linux/arm64` image (plus attestations), read from the workflow's own `imagetools inspect` step |
+| Speech input check | `scripts/speech_check.py` against a server with `SYSTEMONE_SPEECH_INPUT=1` and the speech model from a Hub cache: two spoken English sentences made at run time | both clips repeated back in full, on the pip path and on the pushed arm64 `-asr` image (pulled from the registry, served with `docker run` on the GB10 with the public 8b); without clips and without a synthesizer the script exits 2 |
 | Decision Index runs | samples of the Decision Index suite (edition 0.3) through `/v1/systemone` at `--max-model-len 131072`, on the 8b and the 30b, as an end-to-end validation of the endpoint | completes with no errors; scores are not reported here while the methodology is verified, and the model card's published figures are the reference (see the caveats below) |
 
 ## Not tested
 
-- **Serving the image under Docker.** The image was served under enroot, on the 8b (one H100)
-  and the 30b (two H100s; see the table). That runs the same filesystem and environment as the image, but not
+- **Serving the image under Docker on amd64.** The image was served under enroot, on the 8b (one H100)
+  and the 30b (two H100s; see the table). The arm64 image was served with `docker run` (see the table). That runs the same filesystem and environment as the image, but not
   `docker run` itself: its `ENTRYPOINT` (enroot ignores it, so `serve.sh` was started explicitly),
   its `--gpus all` handling and `--ipc=host` were not exercised.
 - **The 3b.** The only 3b checkpoint, `granite-switch-4.1-3b-preview`, ships twelve

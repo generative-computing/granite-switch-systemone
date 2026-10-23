@@ -1,51 +1,39 @@
-# A vLLM OpenAI-compatible server for a composed granite-switch checkpoint, serving
-# BOTH the standard /v1/chat/completions API and typesafe.ai's jev system-one API
-# (/v1/systemone) on the same server -- one engine, one GPU KV cache, one container.
-# The checkpoint's weights are NOT baked into this image (mounted separately at
-# $MODEL_DIR / /repository, e.g. by HF Inference Endpoints' own deployment mechanism).
+# vLLM server for a composed granite-switch checkpoint: /v1/chat/completions plus the
+# /v1/decisions and /v1/systemone plugin routes, on one engine and one KV cache.
+# The checkpoint is not in the image; mount it at $MODEL_DIR (default /repository).
 #
-#   docker build --platform linux/amd64 -t <your-registry>/granite-switch-systemone:<tag> .
+#   docker build -t <registry>/granite-switch-systemone:<tag> .
 #
-# Optional speech input (granite-switch[audio], and a specific speech model's weights baked in
-# at a pinned revision -- see ASR_MODEL/ASR_REVISION below). Decisions do not use it, so
-# serve.sh switches it off unless SYSTEMONE_SPEECH_INPUT=1; build with WITH_ASR=1 for an image
-# that has what it needs:
-#   docker build --platform linux/amd64 --build-arg WITH_ASR=1 \
-#       -t <your-registry>/granite-switch-systemone:<tag>-asr .
-# vLLM 0.30, the version this plugin is tested on live (granite-switch 0.1.1 supports
-# 0.26-0.30). The default tag is the CUDA 13 build (torch 2.13.0+cu130, the PyPI vLLM
-# wheel) -- the same stack the live tests ran. The -cu129 tag ships torch 2.14.0,
-# which the vLLM wheel's own torch==2.13.0 pin contradicts, so granite-switch[vllm]
-# has no resolution against it.
+# The audio libraries are in every build. WITH_ASR=1 also bakes in the speech model (see
+# ASR_MODEL and ASR_REVISION); serve.sh keeps speech off unless SYSTEMONE_SPEECH_INPUT=1.
+#   docker build --build-arg WITH_ASR=1 -t <registry>/granite-switch-systemone:<tag>-asr .
+#
+# vLLM 0.30 is the version tested live. The default tag is the CUDA 13 build (torch
+# 2.13.0+cu130), the stack the tests ran. The -cu129 tag ships torch 2.14.0, which the
+# vLLM wheel's own torch==2.13.0 pin rules out, so granite-switch[vllm] cannot resolve there.
 FROM vllm/vllm-openai:v0.30.0
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 ARG GRANITE_SWITCH_VERSION=0.1.1
 ARG WITH_ASR=0
 
-# Pinned to a specific, released granite-switch version (not `main`) so this image's
-# behavior does not drift when upstream changes -- deliberately a tagged PyPI release,
-# not a floating branch. transformers 5.17 is what granite-switch supports; [audio] is
-# only installed when WITH_ASR=1 (it brings librosa and soundfile, used only by the
-# ASR cascade). The base image's vLLM, torch, and torchcodec (CUDA 13 builds) are kept
-# as they are: the constraint file pins them so nothing in granite-switch's dependency
-# tree can move them.
+# granite-switch is pinned to a PyPI release so the image does not drift with upstream;
+# transformers 5.17 is the version it supports. The [audio] extra (av, scipy, soundfile,
+# soxr) is in every build: without it audio requests fail with HTTP 500 while /health and
+# decisions look fine. The constraint file keeps the base image's vLLM, torch and
+# torchcodec as they are.
 RUN python3 -m pip list --format=freeze | grep -i -E "^(vllm|torch|torchaudio|torchcodec|torchvision|flashinfer-python)==" > /tmp/keep.txt \
-    && if [ "$WITH_ASR" = "1" ]; then EXTRA="granite-switch[audio]"; else EXTRA="granite-switch[vllm]"; fi \
     && uv pip install --system --constraint /tmp/keep.txt \
-        "${EXTRA}==${GRANITE_SWITCH_VERSION}" \
+        "granite-switch[audio]==${GRANITE_SWITCH_VERSION}" \
         "transformers==5.17.0" \
-    && python3 -c "import granite_switch.vllm, vllm, transformers, torch; print(vllm.__version__, transformers.__version__, torch.__version__)"
+    && python3 -c "import granite_switch.vllm, vllm, transformers, torch, av, scipy, soundfile, soxr; print(vllm.__version__, transformers.__version__, torch.__version__)"
 
-# The ASR cascade's speech model, named by Hugging Face id in the checkpoint's config,
-# baked in as a Hub cache at the revision this image was tested with, without the
-# repo's unused .py files. The server runs with the Hub offline, so a missing/moved file
-# fails startup instead of silently fetching something else.
-# The pinned commit is downloaded by hash, not from `main`, so the build does not change when
-# the model repository moves. A download by commit writes no refs/main, and the offline lookup
-# for the revision "main" reads that file, so it is written here and then checked.
+# The speech model the checkpoint's config names, baked in as a Hub cache at the tested
+# commit (without the repo's unused .py files). The server runs with the Hub offline, so a
+# missing file fails startup instead of fetching something else. A download by commit
+# writes no refs/main, which the offline lookup for "main" reads, so it is written here.
 ARG ASR_MODEL=ibm-granite/granite-speech-5.0-470m-turboctc
-ARG ASR_REVISION=947f59af40db9791170a0628cf0f3f4812d720f1
+ARG ASR_REVISION=1dd23f46f6d4e6eae2531982ba2e33220086dd97
 RUN if [ "$WITH_ASR" = "1" ]; then \
         hf download ${ASR_MODEL} --revision ${ASR_REVISION} --cache-dir /opt/hf-cache --exclude "*.py" > /dev/null \
         && mkdir -p /opt/hf-cache/models--${ASR_MODEL//\//--}/refs \
@@ -54,18 +42,15 @@ RUN if [ "$WITH_ASR" = "1" ]; then \
     fi
 ENV HF_HUB_CACHE=/opt/hf-cache HF_HUB_OFFLINE=1
 
-# The jev system-one API (/v1/systemone), a vllm.endpoint_plugins entry point mounted
-# on this same server -- see README.md and src/granite_switch_systemone/plugin.py.
+# The plugin: a vllm.endpoint_plugins entry point (see src/granite_switch_systemone/plugin.py).
 COPY pyproject.toml README.md /opt/granite-switch-systemone/
 COPY src /opt/granite-switch-systemone/src
 RUN uv pip install --system --no-deps /opt/granite-switch-systemone
 
 COPY serve.sh /usr/local/bin/serve.sh
 RUN chmod +x /usr/local/bin/serve.sh
-# Endpoint plugins only load if VLLM_PLUGINS is set AND names them (stricter than
-# other vLLM plugin groups, which default to "load everything" when VLLM_PLUGINS is
-# unset): must include register_granite_switch too, or the Switch model class stops
-# being registered the moment this allowlist is set at all.
+# Endpoint plugins load only when VLLM_PLUGINS names them, and setting it stops vLLM loading
+# any others, so register_granite_switch has to be listed too.
 ENV VLLM_PLUGINS=register_granite_switch,granite_switch_systemone \
     SYSTEMONE_ADAPTER_NAME=decision \
     SYSTEMONE_INVOCATION_MARKER="### DECISION"

@@ -99,6 +99,7 @@ def test_hub_cache_dir_follows_huggingface_hub_precedence(env, expected):
 
 def test_main_exits_1_and_says_what_to_do(tmp_path, monkeypatch, capsys):
     model_dir = _checkpoint(tmp_path, asr_enabled=True, asr_model_id=None)
+    monkeypatch.setenv("SYSTEMONE_PREFLIGHT_AUDIO_MODULES", "")  # this test is about the speech model
     monkeypatch.setenv("HF_HUB_OFFLINE", "1")
     monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "cache"))
     assert preflight.main([str(model_dir)]) == 1
@@ -108,6 +109,39 @@ def test_main_exits_1_and_says_what_to_do(tmp_path, monkeypatch, capsys):
     assert "WITH_ASR=1" in err
     assert "SYSTEMONE_SPEECH_INPUT" in err
     assert "HF_HUB_OFFLINE=0" in err
+
+
+def test_audio_modules_missing_are_named_when_speech_is_on(tmp_path, monkeypatch):
+    model_dir = _checkpoint(tmp_path, asr_enabled=True)
+    monkeypatch.setattr(
+        preflight.importlib.util, "find_spec", lambda name: None if name in {"av", "soxr"} else object()
+    )
+    assert preflight.missing_audio_modules(model_dir) == ["av", "soxr"]
+
+
+def test_audio_modules_are_not_checked_when_the_checkpoint_has_speech_off(tmp_path, monkeypatch):
+    model_dir = _checkpoint(tmp_path, asr_enabled=False)
+    monkeypatch.setattr(preflight.importlib.util, "find_spec", lambda name: None)
+    assert preflight.missing_audio_modules(model_dir) == []
+
+
+def test_audio_modules_are_not_checked_without_a_local_config(tmp_path, monkeypatch):
+    monkeypatch.setattr(preflight.importlib.util, "find_spec", lambda name: None)
+    assert preflight.missing_audio_modules(tmp_path) == []
+
+
+def test_main_exits_1_and_names_the_missing_audio_libraries(tmp_path, monkeypatch, capsys):
+    model_dir = _checkpoint(tmp_path, asr_enabled=True, asr_model_id=None)
+    cache = tmp_path / "cache"
+    _cache_model(cache, DEFAULT)  # the speech model is fine; only the libraries are missing
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+    monkeypatch.setenv("HF_HUB_CACHE", str(cache))
+    monkeypatch.setattr(preflight.importlib.util, "find_spec", lambda name: None if name == "soundfile" else object())
+    assert preflight.main([str(model_dir)]) == 1
+    err = capsys.readouterr().err
+    assert "soundfile" in err
+    assert "HTTP 500" in err
+    assert "vllm[audio]" in err
 
 
 def test_main_exits_0_quietly_when_nothing_is_missing(tmp_path, monkeypatch, capsys):

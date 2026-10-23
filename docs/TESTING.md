@@ -74,6 +74,7 @@ Python standard library unless noted.
 | `python3 scripts/probe_check.py --base-url URL --load 30` | Adds a load test at 1, 8 and 32 clients with chat latency alongside. Reported, not asserted. |
 | `python3 scripts/longctx_check.py --base-url URL --tokenizer /path/to/granite-switch-4.1-8b` | Long-context caps, on a server started with `--max-model-len 131072` and the 8b: the danger-zone header path (a ~98k-token request answered with the header, rejected without it), the 131,072 backstop, the default 32k/64k caps, and that `/v1/decisions` has no header escape. Unlike the scripts above it needs the checkpoint's tokenizer (transformers). |
 | `python3 scripts/accuracy_check.py --base-url URL` | Accuracy, log-loss and Brier score on 200 BoolQ validation rows (public data, downloaded when it runs, needs internet). Fails below 75% accuracy, which catches a wrong invocation marker. To check an upgrade or a changed setting, run it on each deployment with `--save`, then `--compare` the second against the first: it reports items only one run got right and an exact McNemar p-value. |
+| `python3 scripts/speech_check.py --base-url URL` | Speech input, on a server started with `SYSTEMONE_SPEECH_INPUT=1` (see the README). Sends spoken clips to chat completions as `input_audio` and checks that the reply repeats at least 80% of the words. Makes its own clips with `espeak-ng` or macOS `say`, so no audio is stored here; `--clip FILE.wav "the words"` uses your own. Exits 2 if it has no clips. A server missing the audio libraries passes `/health` and fails here with HTTP 500. |
 | `python3 scripts/load_test.py --base-url URL` | Throughput and latency of `/v1/decisions` at 1, 8, 32, 64 and 128 clients, with the server's prefix-cache hit rate. `--mode unique` (default) gives every request a fresh state; `--mode identical` repeats one body and flatters throughput. Run both and report both. See below. |
 | `SYSTEMONE_BASE_URL=URL pytest tests/test_decisions_e2e.py` | `/v1/decisions` and `/v1/systemone` return the same answers for equivalent requests. |
 
@@ -145,7 +146,7 @@ repository: you fetch the kit, build the suite yourself, and run it against your
 
 What you need:
 
-- A running server (see [Verify the deployment](../README.md#verify-the-deployment)). Start it
+- A running server (see [Quick start](../README.md#quick-start)). Start it
   with `--max-model-len 131072` if you want the longest rows answered instead of rejected.
 - The kit, which is MIT licensed. Install it and build the suite by following its README
   ("Quickstart (local)"). The suite is not redistributed, so you rebuild it from public sources

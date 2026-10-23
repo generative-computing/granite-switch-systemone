@@ -33,6 +33,7 @@ def _run(tmp_path: Path, extra_env: dict[str, str], *args: str, asr_enabled: boo
         "STUB_OUT": str(out),
         "HF_HUB_OFFLINE": "1",
         "HF_HUB_CACHE": str(tmp_path / "empty-cache"),
+        "SYSTEMONE_PREFLIGHT_AUDIO_MODULES": "",  # these tests are about the speech model, not the audio libraries
         **extra_env,
     }
     done = subprocess.run(["bash", str(SERVE_SH), *args], env=env, capture_output=True, text=True)
@@ -59,6 +60,16 @@ def test_speech_input_on_with_the_model_cached_starts_without_the_override(tmp_p
     done, argv = _run(tmp_path, {"SYSTEMONE_SPEECH_INPUT": "1"})
     assert done.returncode == 0, done.stderr
     assert "--hf-overrides" not in argv
+
+
+def test_speech_input_on_without_the_audio_libraries_stops_before_vllm(tmp_path):
+    done, argv = _run(
+        tmp_path, {"SYSTEMONE_SPEECH_INPUT": "1", "SYSTEMONE_PREFLIGHT_AUDIO_MODULES": "no_such_audio_module_xyz"}
+    )
+    assert done.returncode == 1
+    assert argv == []  # vllm never started
+    assert "no_such_audio_module_xyz" in done.stderr
+    assert "HTTP 500" in done.stderr
 
 
 def test_extra_arguments_still_reach_vllm(tmp_path):

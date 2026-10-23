@@ -13,11 +13,18 @@ This check fails earlier and names the cause and the fixes.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import sys
 from collections.abc import Mapping
 from pathlib import Path
+
+# What vLLM's `audio` extra needs to decode an audio request. Without them the server starts and
+# passes /health, then answers every audio request with HTTP 500 "install vllm[audio]".
+AUDIO_MODULES = ("av", "scipy", "soundfile", "soxr")
+# Test hook: a comma-separated list of the modules to treat as installed (an empty value checks nothing).
+_AUDIO_MODULES_ENV = "SYSTEMONE_PREFLIGHT_AUDIO_MODULES"
 
 # granite-switch 0.1.1's DEFAULT_ASR_MODEL_ID (granite_switch/vllm/audio/asr.py), used when the
 # checkpoint's `asr_model_id` is null. tests/test_preflight.py compares it with the installed copy.
@@ -58,10 +65,33 @@ def missing_asr_model(model_dir: Path, env: Mapping[str, str]) -> str | None:
     return None if _cached(model_id, hub_cache_dir(env)) else model_id
 
 
+def missing_audio_modules(model_dir: Path) -> list[str]:
+    """The audio libraries a speech-enabled checkpoint needs but this environment lacks."""
+    config_path = model_dir / "config.json"
+    if not config_path.is_file() or not json.loads(config_path.read_text()).get("asr_enabled"):
+        return []  # not a local checkpoint, or speech input is off in it
+    required = AUDIO_MODULES
+    if _AUDIO_MODULES_ENV in os.environ:
+        required = tuple(n for n in os.environ[_AUDIO_MODULES_ENV].split(",") if n)
+    return [name for name in required if importlib.util.find_spec(name) is None]
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 1:
         print("usage: python3 -m granite_switch_systemone.preflight MODEL_DIR", file=sys.stderr)
         return 2
+    modules = missing_audio_modules(Path(argv[0]))
+    if modules:
+        print(
+            "granite-switch-systemone: speech input is on, but these audio libraries are not installed: "
+            f"{', '.join(modules)}.\n"
+            "Without them the server starts and passes /health, then answers every audio request with "
+            'HTTP 500 "Please install vllm[audio]". Install vllm[audio] (or granite-switch[audio]) into '
+            "this environment, or use a release image, which includes them. Leave SYSTEMONE_SPEECH_INPUT "
+            "unset or 0 if you do not need audio.",
+            file=sys.stderr,
+        )
+        return 1
     model_id = missing_asr_model(Path(argv[0]), os.environ)
     if model_id is None:
         return 0

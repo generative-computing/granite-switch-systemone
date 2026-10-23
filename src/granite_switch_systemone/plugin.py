@@ -58,10 +58,8 @@ MAX_READS_PER_REQUEST = 16
 
 
 def _load_renderer():
-    """Resolve `SYSTEMONE_RENDERER` (default: this package's own placeholder) to a
-    callable at plugin-init time -- never imported directly by this module, so this
-    package has zero import-time dependency on whatever module the configured path
-    names (see module docstring)."""
+    """Resolve `SYSTEMONE_RENDERER` to a callable at plugin init. It is loaded by name, so
+    this module never imports the configured renderer directly."""
     path = os.environ.get(_RENDERER_ENV, _DEFAULT_RENDERER)
     if ":" not in path:
         raise RuntimeError(f"{_RENDERER_ENV}={path!r} is not a valid 'module:function' path")
@@ -237,10 +235,9 @@ class DecisionInputMessage(BaseModel):
 
 
 class DecisionRequest(BaseModel):
-    """OpenAI's Decisions request body. `prompt_cache_key`/`prompt_cache_options`/
-    `safety_identifier` are accepted (the official SDKs send them) and ignored -- the
-    engine's prefix cache is shared automatically, and access control belongs to
-    whatever hosts this container, the same stance as the systemone route's 401/429."""
+    """OpenAI's Decisions request body. `prompt_cache_key`, `prompt_cache_options` and
+    `safety_identifier` are accepted, since the official SDKs send them, and ignored:
+    the prefix cache is shared automatically and access control belongs to the host."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -634,10 +631,9 @@ async def _fetch_label_logprobs(
     msgs: list[dict[str, str]],
     label_ids_chunk: list[int],
 ):
-    """One `create_chat_completion` call asking for exactly `label_ids_chunk`'s
-    logprobs, for the given (already fully rendered) `msgs`. Returns the raw
-    `ChatCompletionResponse`; callers combine multiple chunks' responses when a
-    question needs more than `MAX_LABEL_OPTIONS` labels."""
+    """One `create_chat_completion` call for the logprobs of `label_ids_chunk` over the
+    rendered `msgs`. Returns the raw response; a question with more than
+    `MAX_LABEL_OPTIONS` labels needs several."""
     from vllm.entrypoints.openai.chat_completion.protocol import (
         ChatCompletionRequest,
         ChatCompletionResponse,
@@ -824,11 +820,9 @@ async def _cancel_pending(tasks: list[asyncio.Task]) -> None:
 
 
 def _decisions_input_to_state(data: str | list[DecisionInputMessage]) -> str:
-    """Flatten OpenAI's `input` (a string, or user messages whose content is a string
-    or text/image parts) into the state string both routes share: message texts joined
-    with blank lines, the same flattening LiteLLM uses when translating between the two
-    formats. Image parts are rejected with a clear error -- this is a text decision
-    adapter, the same stance as the systemone route's `box`."""
+    """Flatten OpenAI's `input` (a string, or user messages with text/image parts) into the
+    state string both routes share: message texts joined with blank lines. Image parts
+    are rejected, as `box` questions are on the systemone route."""
     if isinstance(data, str):
         return data
     texts: list[str] = []
@@ -866,11 +860,10 @@ def _decisions_question_to_internal(question: DecisionQuestion, index: int) -> t
 def _internal_answer_to_decisions(
     question: DecisionQuestion, extras: dict[str, Any], answer: dict[str, Any]
 ) -> dict[str, Any]:
-    """Map one internal (jev-shaped) answer onto OpenAI's Decisions answer shapes:
-    `predicate` -> `probability` (the internal noul answer is already P(true));
-    `choice` -> the picked value plus per-value probabilities and the shared confidence
-    statistic; `score` -> the expected level over per-level probabilities, carrying the
-    ORIGINAL level labels (the internal legend holds the descriptions we rendered)."""
+    """Map one internal (jev-shaped) answer onto OpenAI's Decisions answer. `predicate`
+    gives P(true), `choice` the picked value with per-value probabilities and confidence,
+    and `score` the expected level, labelled with the caller's original level labels
+    (the internal legend holds the rendered descriptions)."""
     if question.type == "predicate":
         return {"type": "predicate", "name": question.name, "probability": answer["noul"]}
     if question.type == "choice":
@@ -1078,9 +1071,8 @@ class SystemOnePlugin:
     required_tasks: tuple[str, ...] | None = ("generate",)
 
     def attach_router(self, app: FastAPI) -> None:
-        # vLLM now ships /v1/systemone and /v1/decisions itself. Whichever is registered
-        # first would answer and the other would be shadowed silently, with different
-        # wire details, so refuse to start instead.
+        # vLLM also ships these routes. Whichever registers first would silently shadow
+        # the other, with different wire details, so refuse to start.
         taken = sorted(path for path in _ROUTE_PATHS if _route_exists(app, path))
         if taken:
             raise RuntimeError(
